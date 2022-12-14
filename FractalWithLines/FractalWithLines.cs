@@ -283,7 +283,7 @@ namespace cAlgo
                 case FractalType.LowerHigh:
                     return Color.DarkCyan;
                 case FractalType.HigherLow:
-                    return Color.Pink;
+                    return Color.Orange;
                 case FractalType.LowerLow:
                     return Color.Red;
             }
