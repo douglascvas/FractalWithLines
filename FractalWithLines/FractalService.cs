@@ -5,7 +5,7 @@ namespace cAlgo
 {
     public class FractalService
     {
-        private API.Bars marketSeries;
+        public API.Bars bars { get; set; }
         public FractalOptions options;
         public String id { get; set; }
         public Fractal lastFractal { get; set; }
@@ -16,7 +16,7 @@ namespace cAlgo
         {
             this.id = marketSeries.TimeFrame.Name;
             this.options = options;
-            this.marketSeries = marketSeries;
+            this.bars = marketSeries;
             onFractalListeners = new List<Action<FractalEvent>>();
         }
 
@@ -71,10 +71,10 @@ namespace cAlgo
         private bool isHighFractal(int middleIndex)
         {
             int halfPeriod = options.period / 2;
-            double middleValue = marketSeries[middleIndex].High;
+            double middleValue = bars[middleIndex].High;
             for (int i = (middleIndex - halfPeriod); i <= (middleIndex + halfPeriod); i++)
             {
-                if (middleValue < marketSeries[i].High)
+                if (middleValue < bars[i].High)
                     return false;
             }
             return true;
@@ -83,10 +83,10 @@ namespace cAlgo
         private bool isLowFractal(int middleIndex)
         {
             int halfPeriod = getHalfPeriod();
-            double middleValue = marketSeries[middleIndex].Low;
+            double middleValue = bars[middleIndex].Low;
             for (int i = (middleIndex - halfPeriod); i <= (middleIndex + halfPeriod); i++)
             {
-                if (middleValue > marketSeries[i].Low)
+                if (middleValue > bars[i].Low)
                     return false;
             }
             return true;
@@ -99,7 +99,7 @@ namespace cAlgo
 
             if (highFractal)
             {
-                Fractal fractal = new Fractal(middleIndex, marketSeries[middleIndex].OpenTime, marketSeries[middleIndex].High, true, id);
+                Fractal fractal = new Fractal(middleIndex, bars[middleIndex].OpenTime, bars[middleIndex].High, true, id);
                 processFractal(index, fractal);
             }
         }
@@ -111,7 +111,7 @@ namespace cAlgo
 
             if (lowFractal)
             {
-                Fractal fractal = new Fractal(middleIndex, marketSeries[middleIndex].OpenTime, marketSeries[middleIndex].Low, false, id);
+                Fractal fractal = new Fractal(middleIndex, bars[middleIndex].OpenTime, bars[middleIndex].Low, false, id);
                 processFractal(index, fractal);
             }
         }

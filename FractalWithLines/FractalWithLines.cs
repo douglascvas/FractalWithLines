@@ -9,44 +9,72 @@ using cAlgo.API.Internals;
 
 namespace cAlgo
 {
+    /**
+     * FullFractal - Version 1.5
+     */
     [Indicator(IsOverlay = true, TimeZone = TimeZones.UTC, AccessRights = AccessRights.None)]
     public class FractalWithLines : Indicator
     {
-        [Parameter(DefaultValue = 5, MinValue = 5)]
+        [Parameter("Period", DefaultValue = 5, MinValue = 5)]
         public int period { get; set; }
 
-        [Parameter("Horizontal Continuation line", DefaultValue = true)]
-        public bool showHorizontalContinuationLine { get; set; }
-
-        [Parameter("Vertical Continuation line", DefaultValue = true)]
-        public bool showVerticalContinuationLine { get; set; }
-
-        [Parameter("Link highs and lows", DefaultValue = true)]
-        public bool linkHighLow { get; set; }
-
-        [Parameter("Plot arrows", DefaultValue = true)]
-        public bool plotArrows { get; set; }
+        [Parameter("Mark fractal value", DefaultValue = true)]
+        public bool plotValueMarkers { get; set; }
 
         [Parameter("Timeframes", DefaultValue = "")]
-        public String timeframes { get; set; }
+        public string timeframes { get; set; }
 
-        [Parameter("Mark fakes", DefaultValue = true)]
+
+        [Parameter("Mark fakes", DefaultValue = true, Group = "Fakes")]
         public bool markFakes { get; set; }
 
-        [Parameter("Top line color", DefaultValue = SystemColor.Red)]
+        [Parameter("Fakes color", DefaultValue = SystemColor.White, Group = "Fakes")]
+        public SystemColor fakesColor { get; set; }
+
+        // High-High
+        [Parameter("Show High-High line", DefaultValue = true, Group = "High-High")]
+        public bool showHorizontalContinuationLine { get; set; }
+
+        [Parameter("High-High line color", DefaultValue = SystemColor.Red, Group = "High-High")]
         public SystemColor horizontalTopLineColor { get; set; }
 
-        [Parameter("Bottom line color", DefaultValue = SystemColor.DarkCyan)]
+        // Low-Low
+        [Parameter("Show Low-Low line", DefaultValue = true, Group = "Low-Low")]
+        public bool showVerticalContinuationLine { get; set; }
+
+        [Parameter("Low-Low line color", DefaultValue = SystemColor.DarkCyan, Group = "Low-Low")]
         public SystemColor horizontalBottomLineColor { get; set; }
 
-        [Parameter("Diagonal line color", DefaultValue = SystemColor.Beige)]
+        // High-Low
+        [Parameter("Show High-Low line", DefaultValue = true, Group = "High-Low")]
+        public bool linkHighLow { get; set; }
+
+        [Parameter("Diagonal line color", DefaultValue = SystemColor.Beige, Group = "High-Low")]
         public SystemColor diagonalLineColor { get; set; }
+
+
+        // Notifications
+        [Parameter("Send notification to email", DefaultValue = "", Group = "Notifications")]
+        public string emailNewFractalNotificationTo { get; set; }
+
+        [Parameter("Play sound on new High ...\n(i.e: C:\\Windows\\Media\\chimes.wav)", DefaultValue = "", Group = "Notifications")]
+        public string newHighSound { get; set; }
+
+        [Parameter("Play sound on new Low ...\n(i.e: C:\\Windows\\Media\\chord.wav)", DefaultValue = "", Group = "Notifications")]
+        public string newLowSound { get; set; }
 
         private const LineStyle linkLineStyle = LineStyle.Lines;
         private const string PREFIX = "fwl--";
+        private const string circleIcon = "⊙";
+        private const string fakeIcon = "⮾";
+        private NotificationManager notificationManager;
+
+        public List<FractalService> fractalServices { get; set; }
 
         protected override void Initialize()
         {
+            notificationManager = new NotificationManager(this, emailNewFractalNotificationTo, newHighSound, newLowSound);
+            fractalServices = new List<FractalService>();
             removeAll();
             Print("Initializing Fractal With Lines version 1.5");
 
@@ -74,14 +102,15 @@ namespace cAlgo
                 }
 
                 var fractalService = new FractalService(bars, options);
+                fractalServices.Add(fractalService);
 
                 fractalService.onFractal((e) => plot(e, bars));
-                bars.BarOpened += (BarOpenedEventArgs e) => this.HandleBarOpened(e.Bars.Count - 1, fractalService, e.Bars);
+                bars.BarOpened += (BarOpenedEventArgs e) => this.HandleBarOpened(e.Bars.Count - 1, fractalService);
                 bars.Reloaded += (BarsHistoryLoadedEventArgs e) => this.handleReload(e, fractalService);
                 for (int i = 0; i < bars.Count; i++)
                 {
                     var bar = bars[i];
-                    this.HandleBarOpened(i, fractalService, bars);
+                    this.HandleBarOpened(i, fractalService);
                 }
             }
         }
@@ -118,34 +147,30 @@ namespace cAlgo
                 .ForEach(n => Chart.RemoveObject(n));
         }
 
-        private void HandleBarOpened(int index, FractalService fractalService, Bars bars)
+        private void HandleBarOpened(int index, FractalService fractalService)
         {
             int effectiveIndex = index - 1;
-            //Print("Handling bar at " + bars[index].OpenTime.ToString());
             fractalService.processIndex(effectiveIndex);
 
-            plotHorizontalContinuationLine(index, fractalService.getLastHighFractal(), fractalService, bars);
-            plotHorizontalContinuationLine(index, fractalService.getLastLowFractal(), fractalService, bars);
+            plotHorizontalContinuationLine(index, fractalService.getLastHighFractal(), fractalService);
+            plotHorizontalContinuationLine(index, fractalService.getLastLowFractal(), fractalService);
         }
-
-        public override void Calculate(int index)
-        {
-        }
-
 
         private void plot(FractalEvent fractalEvent, Bars bars)
         {
             Fractal fractal = fractalEvent.fractal;
-            plotFractalsLink(fractal.getPrevious(), fractal.getBest());
+            plotHighLowLine(fractal.getPrevious(), fractal.getBest());
             if (markFakes)
             {
                 plotBadFractalSignals(fractal, bars);
             }
-            if (plotArrows)
+            if (plotValueMarkers)
             {
-                plotArrow(fractal, bars);
+                plotFractalMarker(fractal, bars);
             }
             plotVerticalContinuationLine(fractal.getBest());
+            notificationManager.sendEmailNotification(fractal);
+            notificationManager.playSoundNotification(fractal);
         }
 
         private void plotVerticalContinuationLine(Fractal fractal)
@@ -167,7 +192,7 @@ namespace cAlgo
             return PREFIX + fractal.prefix + "-";
         }
 
-        private void plotHorizontalContinuationLine(int index, Fractal fractal, FractalService fractalService, Bars bars)
+        private void plotHorizontalContinuationLine(int index, Fractal fractal, FractalService fractalService)
         {
             if (!showHorizontalContinuationLine || fractal == null)
                 return;
@@ -175,7 +200,7 @@ namespace cAlgo
             int middleIndex = fractalService.getMiddleIndex(index - 1);
             bool isNewFractal = middleIndex == fractal.index;
             if (isNewFractal)
-                drawHorizontalLineForPreviousFractalOfSameSide(fractal, middleIndex, bars);
+                plotHighHighLineForPreviousFractalOfSameSide(fractal, middleIndex, fractalService.bars);
 
             int lastOpositeFractalIndex = getPreviousIndex(fractal);
 
@@ -184,29 +209,29 @@ namespace cAlgo
             {
                 var prevIndex = getPreviousIndex(previousFractal);
                 var prevName = getPrefix(previousFractal) + (previousFractal.high ? "high" : "low") + "-horizontal-line-" + prevIndex;
-                drawHorizontalLine(fractal.index, previousFractal, prevName, bars);
+                plotHorizontalLine(fractal.index, previousFractal, prevName, fractalService.bars);
             }
             var name = getPrefix(fractal) + (fractal.high ? "high" : "low") + "-horizontal-line-" + lastOpositeFractalIndex;
-            drawHorizontalLine(index, fractal, name, bars);
+            plotHorizontalLine(index, fractal, name, fractalService.bars);
         }
 
-        private void drawHorizontalLineForPreviousFractalOfSameSide(Fractal fractal, int middleIndex, Bars bars)
+        private void plotHighHighLineForPreviousFractalOfSameSide(Fractal fractal, int middleIndex, Bars bars)
         {
             Fractal previousOfSameSide = fractal.getPreviousOfSameSide();
             if (previousOfSameSide == null)
                 return;
             int previousIndex = getPreviousIndex(previousOfSameSide);
             String newLineName = (fractal.high ? "high" : "low") + "-horizontal-line-" + previousIndex;
-            drawHorizontalLine(middleIndex, previousOfSameSide, newLineName, bars);
+            plotHorizontalLine(middleIndex, previousOfSameSide, newLineName, bars);
         }
 
-        private void drawHorizontalLine(int index, Fractal fractal, string name, Bars bars)
+        private void plotHorizontalLine(int index, Fractal fractal, string name, Bars bars)
         {
             Color color = fractal.high ? horizontalTopLineColor.ToCtraderColor() : horizontalBottomLineColor.ToCtraderColor();
-            var draw = Chart.DrawTrendLine(name, fractal.dateTime, fractal.value, bars[index].OpenTime, fractal.value, color, 1, LineStyle.Dots);
+            Chart.DrawTrendLine(name, fractal.dateTime, fractal.value, bars[index].OpenTime, fractal.value, color, 1, LineStyle.Dots);
         }
 
-        private void plotFractalsLink(Fractal fractal1, Fractal fractal2)
+        private void plotHighLowLine(Fractal fractal1, Fractal fractal2)
         {
             if (!linkHighLow || fractal1 == null || fractal2 == null)
                 return;
@@ -219,23 +244,27 @@ namespace cAlgo
         {
             List<Fractal> allWorse = fractal.getBadFractals();
             for (int i = 0; i < allWorse.Count; i++)
-                plotBadFractalSignal(getPrefix(fractal) + getPreviousIndex(fractal) + "-badSignal-" + i, allWorse[i], bars);
+            {
+                var badFractal = allWorse[i];
+                Chart.RemoveObject(getPrefix(badFractal) + "-" + badFractal.index + "-marker-" + (badFractal.high ? "high" : "low"));
+                plotBadFractalMarker(getPrefix(fractal) + getPreviousIndex(fractal) + "-badSignal-" + i, badFractal);
+            }
         }
 
-        private void plotBadFractalSignal(String name, Fractal fractal, Bars bars)
+        private void plotBadFractalMarker(string name, Fractal fractal)
         {
-            var size = Symbol.PipSize * 4;
-            Chart.DrawIcon(name, ChartIconType.Diamond,
-               fractal.dateTime, fractal.value + size * (fractal.high ? 1 : -1), Color.Coral);
+            var t = Chart.DrawText(name, fakeIcon, fractal.dateTime, fractal.value, fakesColor.ToCtraderColor());
+            t.VerticalAlignment = VerticalAlignment.Center;
+            t.HorizontalAlignment = HorizontalAlignment.Center;
         }
 
-        private void plotArrow(Fractal fractal, Bars bars)
+        private void plotFractalMarker(Fractal fractal, Bars bars)
         {
-            String name = getPrefix(fractal) + fractal.index + "-arrow-" + (fractal.high ? "high" : "low");
-            Color color = getArrowColor(fractal);
-            var size = Symbol.PipSize * 1;
-            Chart.DrawIcon(name, fractal.isHigher() ? ChartIconType.UpTriangle : ChartIconType.DownTriangle,
-                fractal.dateTime, fractal.value + size * (fractal.high ? 1 : -1), color);
+            var name = getPrefix(fractal) + "-" + fractal.index + "-marker-" + (fractal.high ? "high" : "low");
+            Color color = getMarkerColor(fractal);
+            var t = Chart.DrawText(name, circleIcon, fractal.dateTime, fractal.value, color);
+            t.VerticalAlignment = VerticalAlignment.Center;
+            t.HorizontalAlignment = HorizontalAlignment.Center;
         }
 
         private static int getPreviousIndex(Fractal fractal)
@@ -245,7 +274,7 @@ namespace cAlgo
             return previousIndex;
         }
 
-        private static Color getArrowColor(Fractal fractal)
+        private static Color getMarkerColor(Fractal fractal)
         {
             switch (fractal.getFractalType())
             {
@@ -259,6 +288,11 @@ namespace cAlgo
                     return Color.Red;
             }
             return Color.White;
+        }
+
+
+        public override void Calculate(int index)
+        {
         }
     }
 }

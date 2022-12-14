@@ -9,6 +9,10 @@ namespace cAlgo
         public int index { get; set; }
         public double value { get; set; }
         public bool high { get; set; }
+        public bool low
+        {
+            get { return !high; }
+        }
 
         public DateTime dateTime { get; set; }
 
